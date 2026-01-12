@@ -1,122 +1,40 @@
-<!DOCTYPE html>
-<html lang="sv">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Linetroll R430D</title>
-
-<style>
-body {
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #f5f5f7;
-    padding: 16px;
-}
-h1 { font-size: 20px; }
-select, button, textarea {
-    width: 100%;
-    padding: 10px;
-    margin: 8px 0;
-    font-size: 16px;
-}
-button {
-    background: #007aff;
-    color: white;
-    border: none;
-    border-radius: 6px;
-}
-.output {
-    background: white;
-    padding: 12px;
-    border-radius: 6px;
-    margin-top: 8px;
-}
-.ok { color: green; }
-.warn { color: orange; }
-.err { color: red; }
-</style>
-</head>
-
-<body>
-
-<h2>📡 Linetroll R430D</h2>
-
-<label>Välj enhet</label>
-<select id="device">
-    <option value="+467190000189006">Indikator 1</option>
-    <option value="+467190000189007">Indikator 2</option>
-    <option value="+467190000189011">Indikator 3</option>
-</select>
-
-<label>Välj kommando</label>
-<select id="command">
-    <option value="NTAS 2 24 1">Statusförfrågan</option>
-    <option value="NTAS 3 1">Begär RSSI / boot</option>
-    <option value="NTAS A 1">Versionsinfo</option>
-    <option value="NTAS READ INFO 1">Läs enhetsinfo</option>
-    <option value="NTAS READ LOG 1">Läs fellogg</option>
-</select>
-
-<button onclick="sendSMS()">📨 Skicka SMS</button>
-
-<hr>
-
-<h1>📥 Tolka SMS</h1>
-
-<textarea id="incoming" rows="4"
-placeholder="Klistra in svar, t.ex:
-3 18 10131515230200 1 1"></textarea>
-
-<button onclick="interpret()">🔍 Tolka</button>
-
-<div class="output" id="result"></div>
-
-<script>
-function sendSMS() {
-    const num = device.value;
-    const cmd = command.value;
-    window.location.href = `sms:${num}&body=${encodeURIComponent(cmd)}`;
-}
-
 function interpret() {
-    const txt = incoming.value.trim();
-    if (!txt) return;
+    const raw = incoming.value.trim();
+    if (!raw) return;
 
-    const p = txt.split(/\s+/);
+    const p = raw.split(/\s+/);
 
     if (p[0] !== "3") {
         result.innerHTML = "<span class='err'>Ej statusmeddelande</span>";
         return;
     }
 
-    const timestamp = p[2];
-    const status = parseInt(p[3], 10);
-    const tx = p[4];
+    if (p.length < 6) {
+        result.innerHTML = "<span class='err'>Ofullständigt statusmeddelande</span>";
+        return;
+    }
+
+    const statusNumber = p[2];
+    const timestamp = p[3];
+    const statusWord = parseInt(p[4], 10);
+    const tx = p[5];
 
     const alarms = [];
-    if (status & 1) alarms.push("Transient fault");
-    if (status & 2) alarms.push("Permanent fault");
-    if (status & 4) alarms.push("Spänningsbortfall");
-    if (status & 8) alarms.push("Låg batterinivå");
+    if (statusWord & 1) alarms.push("Transient fault");
+    if (statusWord & 2) alarms.push("Permanent fault");
+    if (statusWord & 4) alarms.push("Spänningsbortfall");
+    if (statusWord & 8) alarms.push("Låg batterinivå");
 
     const time = parseTime(timestamp);
 
     result.innerHTML = `
 <b>📅 Tid:</b> ${time}<br>
 <b>📟 Tx:</b> ${tx}<br>
-<b>⚠️ Status:</b><br>
+<b>🔢 Statuskod:</b> ${statusWord}<br>
+<b>⚠️ Larm:</b><br>
 ${alarms.length === 0
     ? "<span class='ok'>Inga aktiva larm</span>"
     : "<ul class='err'>" + alarms.map(a => `<li>${a}</li>`).join("") + "</ul>"
 }
 `;
 }
-
-function parseTime(ts) {
-    if (ts === "0") return "Ingen tidsstämpel";
-    return `20${ts.slice(0,2)}-${ts.slice(2,4)}-${ts.slice(4,6)}
-            ${ts.slice(6,8)}:${ts.slice(8,10)}:${ts.slice(10,12)}`;
-}
-</script>
-
-</body>
-</html>
