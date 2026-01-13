@@ -22,9 +22,7 @@ select, button, textarea {
     font-size: 16px;
 }
 
-select, textarea {
-    width: 100%;
-}
+select, textarea { width: 100%; }
 
 button {
     background: #007aff;
@@ -49,11 +47,10 @@ button {
 .rssi-bad { color: orange; }
 .rssi-poor { color: red; }
 
-/* --- SMS input with paste button --- */
+/* SMS input row */
 .sms-input-row {
     display: flex;
     gap: 8px;
-    align-items: stretch;
 }
 
 .sms-input-row textarea {
@@ -62,15 +59,33 @@ button {
 
 .sms-input-row button {
     width: 110px;
-    white-space: nowrap;
 }
+
+/* Toast */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: white;
+    padding: 10px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.toast.show { opacity: 1; }
 
 .footer {
     margin-top: 40px;
     text-align: center;
 }
+
 .footer img {
-    max-width: 200px;
+    max-width: 100px; /* halverad storlek */
     opacity: 0.85;
 }
 </style>
@@ -115,12 +130,25 @@ button {
     <img src="skyllbergs-bruk-logo.png" alt="Skyllbergs Bruk">
 </div>
 
+<div id="toast" class="toast">SMS inklistrat</div>
+
 <script>
 const commandNames = {
     "NTAS 2 24": "Statusförfrågan",
     "NTAS 3": "RSSI / Boot",
     "NTAS A": "Versionsinformation"
 };
+
+function vibrate() {
+    if (navigator.vibrate) navigator.vibrate(15);
+}
+
+function showToast(text) {
+    const t = document.getElementById("toast");
+    t.textContent = text;
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 2000);
+}
 
 function sendSMS() {
     const tx = device.value;
@@ -130,17 +158,16 @@ function sendSMS() {
         `sms:+4670000000${tx}&body=${encodeURIComponent(cmd + " " + tx)}`;
 }
 
-/* --------- KLIPPA IN FRÅN URKLIPP --------- */
+/* -------- PASTE + AUTO INTERPRET -------- */
 async function pasteFromClipboard() {
     try {
         const text = await navigator.clipboard.readText();
         incoming.value = text.trim();
-    } catch (err) {
-        alert(
-          "Kunde inte läsa urklipp.\n\n" +
-          "Kontrollera att sidan öppnats i Safari " +
-          "och att du tryckte på knappen själv."
-        );
+        vibrate();
+        showToast("SMS inklistrat");
+        interpret();
+    } catch {
+        alert("Kunde inte läsa urklipp i Safari.");
     }
 }
 
@@ -148,12 +175,14 @@ function interpret() {
     const raw = incoming.value.trim();
     if (!raw) return;
 
+    vibrate();
+
     const p = raw.split(/\s+/);
     const frameLength = parseInt(p[1], 10);
     const tx = p[p.length - 1];
     const lastCmd = localStorage.getItem("lastCmd_" + tx) || "Okänt kommando";
 
-    /* -------- STATUS -------- */
+    /* STATUS */
     if (frameLength === 18) {
         const statusWord = parseInt(p[4], 10);
 
@@ -166,52 +195,41 @@ function interpret() {
 
         const alarms = alarmMap.filter(a => statusWord & a.bit);
 
-        const alarmHtml = alarms.length === 0
-            ? `<span class="ok">Inga aktiva larm</span>`
-            : "<ul>" + alarms.map(a =>
-                `<li class="${a.severity}">${a.label}</li>`
-              ).join("") + "</ul>";
-
         result.innerHTML = `
 <b>Svar på:</b> ${commandNames[lastCmd] || lastCmd}<br>
 <b>Tx:</b> ${tx}<br>
 <b>Statuskod:</b> ${statusWord}<br>
-${alarmHtml}`;
+${alarms.length === 0
+    ? `<span class="ok">Inga aktiva larm</span>`
+    : "<ul>" + alarms.map(a =>
+        `<li class="${a.severity}">${a.label}</li>`).join("") + "</ul>"}`;
+
+        incoming.value = "";
         return;
     }
 
-    /* -------- RSSI / BOOT -------- */
+    /* RSSI / BOOT */
     if (frameLength === 5) {
         const rssi = parseInt(p[4], 10);
-        saveRSSI(tx, rssi);
+        localStorage.setItem("rssi_" + tx, rssi);
 
-        const { text, cls } = rssiQuality(rssi);
+        const q =
+            rssi > -70 ? ["Mycket bra","rssi-good"] :
+            rssi > -85 ? ["Bra","rssi-ok"] :
+            rssi > -100 ? ["Svag","rssi-bad"] :
+            ["Mycket svag","rssi-poor"];
 
         result.innerHTML = `
 <b>Svar på:</b> ${commandNames[lastCmd] || lastCmd}<br>
 <b>Tx:</b> ${tx}<br>
-<b>RSSI:</b> <span class="${cls}">${rssi} dBm</span><br>
-<b>Bedömning:</b> ${text}<br>
-<b>Senaste RSSI:</b> ${getLastRSSI(tx)} dBm`;
+<b>RSSI:</b> <span class="${q[1]}">${rssi} dBm</span><br>
+<b>Bedömning:</b> ${q[0]}`;
+
+        incoming.value = "";
         return;
     }
 
     result.innerHTML = `<span class="warn">Okänt svar</span><br>${raw}`;
-}
-
-function rssiQuality(rssi) {
-    if (rssi > -70) return { text: "Mycket bra", cls: "rssi-good" };
-    if (rssi > -85) return { text: "Bra", cls: "rssi-ok" };
-    if (rssi > -100) return { text: "Svag", cls: "rssi-bad" };
-    return { text: "Mycket svag", cls: "rssi-poor" };
-}
-
-function saveRSSI(tx, rssi) {
-    localStorage.setItem("rssi_" + tx, rssi);
-}
-
-function getLastRSSI(tx) {
-    return localStorage.getItem("rssi_" + tx) || "–";
 }
 </script>
 
