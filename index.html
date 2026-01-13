@@ -1,40 +1,181 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nortroll – Linetroll R430D</title>
+
+<style>
+body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f5f7;
+    padding: 16px;
+}
+
+h1 { font-size: 20px; margin-bottom: 12px; }
+.subtitle { margin-bottom: 24px; color: #555; }
+h2 { font-size: 16px; margin-top: 24px; }
+
+select, button, textarea {
+    width: 100%;
+    padding: 10px;
+    margin: 8px 0;
+    font-size: 16px;
+}
+
+button {
+    background: #007aff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+}
+
+.output {
+    background: white;
+    padding: 12px;
+    border-radius: 6px;
+    margin-top: 8px;
+}
+
+.ok { color: green; }
+.warn { color: orange; }
+.err { color: red; }
+
+.rssi-good { color: green; }
+.rssi-ok { color: #b58900; }
+.rssi-bad { color: orange; }
+.rssi-poor { color: red; }
+
+.footer {
+    margin-top: 40px;
+    text-align: center;
+}
+.footer img {
+    max-width: 200px;
+    opacity: 0.85;
+}
+</style>
+</head>
+
+<body>
+
+<h1>📡 Nortroll</h1>
+<div class="subtitle">Linetroll R430D – SMS-gränssnitt</div>
+
+<h2>Skicka kommando</h2>
+
+<label>Välj indikator</label>
+<select id="device">
+    <option value="1">Indikator 1</option>
+    <option value="2">Indikator 2</option>
+    <option value="3">Indikator 3</option>
+</select>
+
+<label>Välj kommando</label>
+<select id="command">
+    <option value="NTAS 2 24">Statusförfrågan</option>
+    <option value="NTAS 3">RSSI / Boot</option>
+    <option value="NTAS A">Versionsinformation</option>
+</select>
+
+<button onclick="sendSMS()">📨 Skicka SMS</button>
+
+<h2>Tolka mottaget SMS</h2>
+
+<textarea id="incoming" rows="4"
+placeholder="Klistra in mottaget SMS"></textarea>
+
+<button onclick="interpret()">🔍 Tolka</button>
+
+<div class="output" id="result"></div>
+
+<div class="footer">
+    <img src="skyllbergs-bruk-logo.png" alt="Skyllbergs Bruk">
+</div>
+
+<script>
+const commandNames = {
+    "NTAS 2 24": "Statusförfrågan",
+    "NTAS 3": "RSSI / Boot",
+    "NTAS A": "Versionsinformation"
+};
+
+function sendSMS() {
+    const tx = device.value;
+    const cmd = command.value;
+    localStorage.setItem("lastCmd_" + tx, cmd);
+    window.location.href = `sms:+4670000000${tx}&body=${encodeURIComponent(cmd + " " + tx)}`;
+}
+
 function interpret() {
     const raw = incoming.value.trim();
     if (!raw) return;
 
     const p = raw.split(/\s+/);
+    const frameLength = parseInt(p[1], 10);
+    const tx = p[p.length - 1];
+    const lastCmd = localStorage.getItem("lastCmd_" + tx) || "Okänt kommando";
 
-    if (p[0] !== "3") {
-        result.innerHTML = "<span class='err'>Ej statusmeddelande</span>";
+    /* -------- STATUS -------- */
+    if (frameLength === 18) {
+        const timestamp = p[3];
+        const statusWord = parseInt(p[4], 10);
+
+        const alarmMap = [
+            { bit: 1, label: "Transient fault", severity: "warn" },
+            { bit: 2, label: "Permanent fault", severity: "err" },
+            { bit: 4, label: "Spänningsbortfall", severity: "err" },
+            { bit: 8, label: "Låg batterinivå", severity: "warn" }
+        ];
+
+        const alarms = alarmMap.filter(a => statusWord & a.bit);
+        let alarmHtml = alarms.length === 0
+            ? `<span class="ok">Inga aktiva larm</span>`
+            : "<ul>" + alarms.map(a =>
+                `<li class="${a.severity}">${a.label}</li>`).join("") + "</ul>";
+
+        result.innerHTML = `
+<b>Svar på:</b> ${commandNames[lastCmd] || lastCmd}<br>
+<b>Tx:</b> ${tx}<br>
+<b>Statuskod:</b> ${statusWord}<br>
+${alarmHtml}`;
         return;
     }
 
-    if (p.length < 6) {
-        result.innerHTML = "<span class='err'>Ofullständigt statusmeddelande</span>";
+    /* -------- RSSI / BOOT -------- */
+    if (frameLength === 5) {
+        const rssi = parseInt(p[4], 10);
+        saveRSSI(tx, rssi);
+
+        const { text, cls } = rssiQuality(rssi);
+
+        result.innerHTML = `
+<b>Svar på:</b> ${commandNames[lastCmd] || lastCmd}<br>
+<b>Tx:</b> ${tx}<br>
+<b>RSSI:</b> <span class="${cls}">${rssi} dBm</span><br>
+<b>Bedömning:</b> ${text}<br>
+<b>Senaste RSSI:</b> ${getLastRSSI(tx)} dBm`;
         return;
     }
 
-    const statusNumber = p[2];
-    const timestamp = p[3];
-    const statusWord = parseInt(p[4], 10);
-    const tx = p[5];
-
-    const alarms = [];
-    if (statusWord & 1) alarms.push("Transient fault");
-    if (statusWord & 2) alarms.push("Permanent fault");
-    if (statusWord & 4) alarms.push("Spänningsbortfall");
-    if (statusWord & 8) alarms.push("Låg batterinivå");
-
-    const time = parseTime(timestamp);
-
-    result.innerHTML = `
-<b>📅 Tid:</b> ${time}<br>
-<b>📟 Tx:</b> ${tx}<br>
-<b>🔢 Statuskod:</b> ${statusWord}<br>
-<b>⚠️ Larm:</b><br>
-${alarms.length === 0
-    ? "<span class='ok'>Inga aktiva larm</span>"
-    : "<ul class='err'>" + alarms.map(a => `<li>${a}</li>`).join("") + "</ul>"
+    result.innerHTML = `<span class="warn">Okänt svar</span><br>${raw}`;
 }
-`;
+
+function rssiQuality(rssi) {
+    if (rssi > -70) return { text: "Mycket bra", cls: "rssi-good" };
+    if (rssi > -85) return { text: "Bra", cls: "rssi-ok" };
+    if (rssi > -100) return { text: "Svag", cls: "rssi-bad" };
+    return { text: "Mycket svag", cls: "rssi-poor" };
 }
+
+function saveRSSI(tx, rssi) {
+    localStorage.setItem("rssi_" + tx, rssi);
+}
+
+function getLastRSSI(tx) {
+    return localStorage.getItem("rssi_" + tx) || "–";
+}
+</script>
+
+</body>
+</html>
