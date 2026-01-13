@@ -47,37 +47,13 @@ button {
 .rssi-bad { color: orange; }
 .rssi-poor { color: red; }
 
-/* SMS input row */
 .sms-input-row {
     display: flex;
     gap: 8px;
 }
 
-.sms-input-row textarea {
-    flex: 1;
-}
-
-.sms-input-row button {
-    width: 110px;
-}
-
-/* Toast */
-.toast {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #333;
-    color: white;
-    padding: 10px 16px;
-    border-radius: 20px;
-    font-size: 14px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-}
-
-.toast.show { opacity: 1; }
+.sms-input-row textarea { flex: 1; }
+.sms-input-row button { width: 110px; }
 
 .footer {
     margin-top: 40px;
@@ -85,7 +61,7 @@ button {
 }
 
 .footer img {
-    max-width: 100px; /* halverad storlek */
+    max-width: 100px;
     opacity: 0.85;
 }
 </style>
@@ -109,7 +85,6 @@ button {
 <select id="command">
     <option value="NTAS 2 24">Statusförfrågan</option>
     <option value="NTAS 3">RSSI / Boot</option>
-    <option value="NTAS A">Versionsinformation</option>
 </select>
 
 <button onclick="sendSMS()">📨 Skicka SMS</button>
@@ -117,8 +92,7 @@ button {
 <h2>Tolka mottaget SMS</h2>
 
 <div class="sms-input-row">
-    <textarea id="incoming" rows="4"
-        placeholder="Klistra in mottaget SMS"></textarea>
+    <textarea id="incoming" rows="4"></textarea>
     <button onclick="pasteFromClipboard()">📋 Klistra in</button>
 </div>
 
@@ -130,106 +104,66 @@ button {
     <img src="skyllbergs-bruk-logo.png" alt="Skyllbergs Bruk">
 </div>
 
-<div id="toast" class="toast">SMS inklistrat</div>
-
 <script>
-const commandNames = {
-    "NTAS 2 24": "Statusförfrågan",
-    "NTAS 3": "RSSI / Boot",
-    "NTAS A": "Versionsinformation"
+const numbers = {
+    1: "+467XXXXXXXX",
+    2: "+467YYYYYYYY",
+    3: "+467ZZZZZZZZ"
 };
-
-function vibrate() {
-    if (navigator.vibrate) navigator.vibrate(15);
-}
-
-function showToast(text) {
-    const t = document.getElementById("toast");
-    t.textContent = text;
-    t.classList.add("show");
-    setTimeout(() => t.classList.remove("show"), 2000);
-}
 
 function sendSMS() {
     const tx = device.value;
     const cmd = command.value;
-    localStorage.setItem("lastCmd_" + tx, cmd);
     window.location.href =
-        `sms:+4670000000${tx}&body=${encodeURIComponent(cmd + " " + tx)}`;
+        `sms:${numbers[tx]}&body=${encodeURIComponent(cmd + " " + tx)}`;
 }
 
-/* -------- PASTE + AUTO INTERPRET -------- */
 async function pasteFromClipboard() {
-    try {
-        const text = await navigator.clipboard.readText();
-        incoming.value = text.trim();
-        vibrate();
-        showToast("SMS inklistrat");
-        interpret();
-    } catch {
-        alert("Kunde inte läsa urklipp i Safari.");
-    }
+    const text = await navigator.clipboard.readText();
+    incoming.value = text.trim();
+    interpret();
 }
 
 function interpret() {
     const raw = incoming.value.trim();
     if (!raw) return;
 
-    vibrate();
+    const p = raw.split(/\s+/).map(v => isNaN(v) ? v : Number(v));
 
-    const p = raw.split(/\s+/);
-    const frameLength = parseInt(p[1], 10);
-    const tx = p[p.length - 1];
-    const lastCmd = localStorage.getItem("lastCmd_" + tx) || "Okänt kommando";
-
-    /* STATUS */
-    if (frameLength === 18) {
-        const statusWord = parseInt(p[4], 10);
-
-        const alarmMap = [
-            { bit: 1, label: "Transient fault", severity: "warn" },
-            { bit: 2, label: "Permanent fault", severity: "err" },
-            { bit: 4, label: "Spänningsbortfall", severity: "err" },
-            { bit: 8, label: "Låg batterinivå", severity: "warn" }
-        ];
-
-        const alarms = alarmMap.filter(a => statusWord & a.bit);
-
-        result.innerHTML = `
-<b>Svar på:</b> ${commandNames[lastCmd] || lastCmd}<br>
-<b>Tx:</b> ${tx}<br>
-<b>Statuskod:</b> ${statusWord}<br>
-${alarms.length === 0
-    ? `<span class="ok">Inga aktiva larm</span>`
-    : "<ul>" + alarms.map(a =>
-        `<li class="${a.severity}">${a.label}</li>`).join("") + "</ul>"}`;
-
-        incoming.value = "";
-        return;
-    }
-
-    /* RSSI / BOOT */
-    if (frameLength === 5) {
-        const rssi = parseInt(p[4], 10);
-        localStorage.setItem("rssi_" + tx, rssi);
-
-        const q =
+    // RSSI / boot
+    if (p.length >= 6 && p.includes(-73) || p.includes(-91)) {
+        const rssi = p.find(v => typeof v === "number" && v < 0);
+        const quality =
             rssi > -70 ? ["Mycket bra","rssi-good"] :
             rssi > -85 ? ["Bra","rssi-ok"] :
             rssi > -100 ? ["Svag","rssi-bad"] :
             ["Mycket svag","rssi-poor"];
 
         result.innerHTML = `
-<b>Svar på:</b> ${commandNames[lastCmd] || lastCmd}<br>
-<b>Tx:</b> ${tx}<br>
-<b>RSSI:</b> <span class="${q[1]}">${rssi} dBm</span><br>
-<b>Bedömning:</b> ${q[0]}`;
+<b>Typ:</b> Signalstatus<br>
+<b>RSSI:</b> <span class="${quality[1]}">${rssi} dBm</span><br>
+<b>Bedömning:</b> ${quality[0]}`;
+        incoming.value = "";
+        return;
+    }
+
+    // Status
+    if (p.length >= 6) {
+        const statusWord = p.find(v => typeof v === "number" && v > 0 && v < 256);
+
+        const alarms = [];
+        if (statusWord & 1) alarms.push("Transient fault");
+        if (statusWord & 2) alarms.push("Permanent fault");
+
+        result.innerHTML = alarms.length
+            ? `<ul>${alarms.map(a => `<li class="warn">${a}</li>`).join("")}</ul>`
+            : `<span class="ok">Inga aktiva larm</span>`;
 
         incoming.value = "";
         return;
     }
 
-    result.innerHTML = `<span class="warn">Okänt svar</span><br>${raw}`;
+    result.innerHTML = `<span class="warn">Kunde inte tolka meddelandet</span><br>${raw}`;
 }
 </script>
 
