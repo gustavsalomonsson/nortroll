@@ -24,14 +24,14 @@ select, textarea {
 }
 
 button {
-    padding: 10px 24px;
+    display: block;
     margin: 12px auto;
+    padding: 10px 24px;
     font-size: 16px;
     background: #007aff;
     color: white;
     border: none;
     border-radius: 6px;
-    display: block;
 }
 
 .ok { color: green; }
@@ -43,20 +43,18 @@ button {
 .rssi-bad { color: orange; }
 .rssi-poor { color: red; }
 
-/* Result separator */
 .separator {
     border-top: 1px solid #000;
     margin: 24px 0 16px;
 }
 
-/* Footer */
 .footer {
     margin-top: 24px;
     text-align: center;
 }
 
 .footer img {
-    max-width: 50px; /* halverad igen */
+    max-width: 50px;
     opacity: 0.85;
 }
 </style>
@@ -118,46 +116,48 @@ function interpret() {
     if (!raw) return;
 
     const p = raw.split(/\s+/).map(v => isNaN(v) ? v : Number(v));
-    let html = "";
+    const length = p[1];
 
-    /* RSSI */
-    const rssi = p.find(v => typeof v === "number" && v < 0);
-    if (rssi !== undefined) {
-        const q =
-            rssi > -70 ? ["Mycket bra","rssi-good"] :
-            rssi > -85 ? ["Bra","rssi-ok"] :
-            rssi > -100 ? ["Svag","rssi-bad"] :
-            ["Mycket svag","rssi-poor"];
+    /* ================= STATUS (length 18) ================= */
+    if (length === 18) {
+        const statusWord = p[4];
 
-        html = `
-<b>Typ:</b> Signalstatus<br>
-<b>RSSI:</b> <span class="${q[1]}">${rssi} dBm</span><br>
-<b>Bedömning:</b> ${q[0]}`;
-        result.innerHTML = html;
-        incoming.value = "";
-        return;
-    }
-
-    /* STATUS */
-    const statusWord = p.find(v => typeof v === "number" && v >= 0 && v <= 255);
-    if (statusWord !== undefined) {
         const alarms = [];
         if (statusWord & 1) alarms.push("Transient fault");
         if (statusWord & 2) alarms.push("Permanent fault");
         if (statusWord & 4) alarms.push("Spänningsbortfall");
         if (statusWord & 8) alarms.push("Låg batterinivå");
 
-        html = alarms.length
+        result.innerHTML = alarms.length
             ? `<ul>${alarms.map(a => `<li class="warn">${a}</li>`).join("")}</ul>`
             : `<span class="ok">Inga aktiva larm</span>`;
 
-        result.innerHTML = html;
         incoming.value = "";
         return;
     }
 
+    /* ================= RSSI / BOOT (length 5) ================= */
+    if (length === 5) {
+        const rssi = p[4];
+
+        const q =
+            rssi > -70 ? ["Mycket bra","rssi-good"] :
+            rssi > -85 ? ["Bra","rssi-ok"] :
+            rssi > -100 ? ["Svag","rssi-bad"] :
+            ["Mycket svag","rssi-poor"];
+
+        result.innerHTML = `
+<b>Typ:</b> Signalstatus<br>
+<b>RSSI:</b> <span class="${q[1]}">${rssi} dBm</span><br>
+<b>Bedömning:</b> ${q[0]}`;
+
+        incoming.value = "";
+        return;
+    }
+
+    /* ================= OKÄND RAM ================= */
     result.innerHTML =
-        `<span class="warn">Kunde inte tolka meddelandet</span><br>${raw}`;
+        `<span class="warn">Okänd eller ej implementerad meddelandetyp</span><br>${raw}`;
 }
 </script>
 
