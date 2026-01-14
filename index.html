@@ -16,26 +16,22 @@ h1 { font-size: 20px; margin-bottom: 12px; }
 .subtitle { margin-bottom: 24px; color: #555; }
 h2 { font-size: 16px; margin-top: 24px; }
 
-select, button, textarea {
+select, textarea {
+    width: 100%;
     padding: 10px;
     margin: 8px 0;
     font-size: 16px;
 }
 
-select, textarea { width: 100%; }
-
 button {
+    padding: 10px 24px;
+    margin: 12px auto;
+    font-size: 16px;
     background: #007aff;
     color: white;
     border: none;
     border-radius: 6px;
-}
-
-.output {
-    background: white;
-    padding: 12px;
-    border-radius: 6px;
-    margin-top: 8px;
+    display: block;
 }
 
 .ok { color: green; }
@@ -47,13 +43,20 @@ button {
 .rssi-bad { color: orange; }
 .rssi-poor { color: red; }
 
+/* Result separator */
+.separator {
+    border-top: 1px solid #000;
+    margin: 24px 0 16px;
+}
+
+/* Footer */
 .footer {
-    margin-top: 40px;
+    margin-top: 24px;
     text-align: center;
 }
 
 .footer img {
-    max-width: 100px;
+    max-width: 50px; /* halverad igen */
     opacity: 0.85;
 }
 </style>
@@ -79,16 +82,18 @@ button {
     <option value="NTAS 3">RSSI / Boot</option>
 </select>
 
-<button onclick="sendSMS()">📨 Skicka SMS</button>
+<button onclick="sendSMS()">Skicka SMS</button>
 
 <h2>Tolka mottaget SMS</h2>
 
 <textarea id="incoming" rows="4"
 placeholder="Klistra in mottaget SMS här"></textarea>
 
-<button onclick="interpret()">🔍 Tolka</button>
+<button onclick="interpret()">Tolka</button>
 
-<div class="output" id="result"></div>
+<div id="result"></div>
+
+<div class="separator"></div>
 
 <div class="footer">
     <img src="skyllbergs-bruk-logo.png" alt="Skyllbergs Bruk">
@@ -113,21 +118,22 @@ function interpret() {
     if (!raw) return;
 
     const p = raw.split(/\s+/).map(v => isNaN(v) ? v : Number(v));
+    let html = "";
 
-    /* RSSI / BOOT */
+    /* RSSI */
     const rssi = p.find(v => typeof v === "number" && v < 0);
     if (rssi !== undefined) {
-        const quality =
+        const q =
             rssi > -70 ? ["Mycket bra","rssi-good"] :
             rssi > -85 ? ["Bra","rssi-ok"] :
             rssi > -100 ? ["Svag","rssi-bad"] :
             ["Mycket svag","rssi-poor"];
 
-        result.innerHTML = `
+        html = `
 <b>Typ:</b> Signalstatus<br>
-<b>RSSI:</b> <span class="${quality[1]}">${rssi} dBm</span><br>
-<b>Bedömning:</b> ${quality[0]}`;
-
+<b>RSSI:</b> <span class="${q[1]}">${rssi} dBm</span><br>
+<b>Bedömning:</b> ${q[0]}`;
+        result.innerHTML = html;
         incoming.value = "";
         return;
     }
@@ -141,10 +147,11 @@ function interpret() {
         if (statusWord & 4) alarms.push("Spänningsbortfall");
         if (statusWord & 8) alarms.push("Låg batterinivå");
 
-        result.innerHTML = alarms.length
+        html = alarms.length
             ? `<ul>${alarms.map(a => `<li class="warn">${a}</li>`).join("")}</ul>`
             : `<span class="ok">Inga aktiva larm</span>`;
 
+        result.innerHTML = html;
         incoming.value = "";
         return;
     }
