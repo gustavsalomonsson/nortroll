@@ -1,4 +1,3 @@
-<!-- force rebuild -->
 <!DOCTYPE html>
 <html lang="sv">
 <head>
@@ -48,14 +47,6 @@ button {
 .rssi-bad { color: orange; }
 .rssi-poor { color: red; }
 
-.sms-input-row {
-    display: flex;
-    gap: 8px;
-}
-
-.sms-input-row textarea { flex: 1; }
-.sms-input-row button { width: 110px; }
-
 .footer {
     margin-top: 40px;
     text-align: center;
@@ -92,10 +83,8 @@ button {
 
 <h2>Tolka mottaget SMS</h2>
 
-<div class="sms-input-row">
-    <textarea id="incoming" rows="4"></textarea>
-    <button onclick="pasteFromClipboard()">📋 Klistra in</button>
-</div>
+<textarea id="incoming" rows="4"
+placeholder="Klistra in mottaget SMS här"></textarea>
 
 <button onclick="interpret()">🔍 Tolka</button>
 
@@ -119,21 +108,15 @@ function sendSMS() {
         `sms:${numbers[tx]}&body=${encodeURIComponent(cmd + " " + tx)}`;
 }
 
-async function pasteFromClipboard() {
-    const text = await navigator.clipboard.readText();
-    incoming.value = text.trim();
-    interpret();
-}
-
 function interpret() {
     const raw = incoming.value.trim();
     if (!raw) return;
 
     const p = raw.split(/\s+/).map(v => isNaN(v) ? v : Number(v));
 
-    // RSSI / boot
-    if (p.length >= 6 && p.includes(-73) || p.includes(-91)) {
-        const rssi = p.find(v => typeof v === "number" && v < 0);
+    /* RSSI / BOOT */
+    const rssi = p.find(v => typeof v === "number" && v < 0);
+    if (rssi !== undefined) {
         const quality =
             rssi > -70 ? ["Mycket bra","rssi-good"] :
             rssi > -85 ? ["Bra","rssi-ok"] :
@@ -144,17 +127,19 @@ function interpret() {
 <b>Typ:</b> Signalstatus<br>
 <b>RSSI:</b> <span class="${quality[1]}">${rssi} dBm</span><br>
 <b>Bedömning:</b> ${quality[0]}`;
+
         incoming.value = "";
         return;
     }
 
-    // Status
-    if (p.length >= 6) {
-        const statusWord = p.find(v => typeof v === "number" && v > 0 && v < 256);
-
+    /* STATUS */
+    const statusWord = p.find(v => typeof v === "number" && v >= 0 && v <= 255);
+    if (statusWord !== undefined) {
         const alarms = [];
         if (statusWord & 1) alarms.push("Transient fault");
         if (statusWord & 2) alarms.push("Permanent fault");
+        if (statusWord & 4) alarms.push("Spänningsbortfall");
+        if (statusWord & 8) alarms.push("Låg batterinivå");
 
         result.innerHTML = alarms.length
             ? `<ul>${alarms.map(a => `<li class="warn">${a}</li>`).join("")}</ul>`
@@ -164,7 +149,8 @@ function interpret() {
         return;
     }
 
-    result.innerHTML = `<span class="warn">Kunde inte tolka meddelandet</span><br>${raw}`;
+    result.innerHTML =
+        `<span class="warn">Kunde inte tolka meddelandet</span><br>${raw}`;
 }
 </script>
 
